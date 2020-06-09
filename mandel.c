@@ -73,12 +73,11 @@ int main()
             unsigned char gradientG = (unsigned char)((float)(IMAGE_WIDTH - x - 1) / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
             unsigned char gradientB = (unsigned char)((float)x / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
             int mandel = inMandelbrotSet(x - (IMAGE_WIDTH - MANDEL_WIDTH) / 2, y - (IMAGE_HEIGHT - MANDEL_HEIGHT) / 2, MANDEL_WIDTH, MANDEL_HEIGHT);
-            if (mandel > 1) {
-                float factor = (float)(MAX_MANDELBROT_ITERATIONS - mandel) / MAX_MANDELBROT_ITERATIONS;
-                float shade = factor * 127.5;
-                currentPix[0] = shade + factor * gradientB;
-                currentPix[1] = shade + factor * gradientG;
-                currentPix[2] = shade + factor * gradientR;
+            if (mandel > 4) {
+                float factor = (float)(MAX_MANDELBROT_ITERATIONS - (mandel - 6)) / MAX_MANDELBROT_ITERATIONS;
+                currentPix[0] = factor * gradientB;
+                currentPix[1] = factor * gradientG;
+                currentPix[2] = factor * gradientR;
             } else {
                 currentPix[0] = gradientB;
                 currentPix[1] = gradientG;
