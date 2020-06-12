@@ -82,6 +82,7 @@ void* renderSection(void* args)
         }
     }
     free(args);
+    return NULL;
 }
 
 int main()
