@@ -1,11 +1,20 @@
 #include <stdio.h>
+#include <pthread.h>
+#include <stdlib.h>
 #include <stdint.h>
 
 #define MAX_MANDELBROT_ITERATIONS 80
 #define IMAGE_WIDTH 1920
 #define IMAGE_HEIGHT 1080
+#define NUM_THREADS 54
 #define MANDEL_WIDTH 1500
 #define MANDEL_HEIGHT 1000
+
+struct render_info {
+    unsigned char* bufStart;
+    unsigned int numRows;
+    unsigned int precedingRows;
+};
 
 struct __attribute__((__packed__)) BITMAPFILEHEADER {
   uint16_t bfType;
@@ -47,6 +56,34 @@ int inMandelbrotSet(int x, int y, int width, int height)
     return MAX_MANDELBROT_ITERATIONS;
 }
 
+void* renderSection(void* args)
+{
+    struct render_info* renderInfo = (struct render_info*) args;
+    unsigned char* data = renderInfo->bufStart + renderInfo->precedingRows * ((4 + ((IMAGE_WIDTH * -3) % 4)) % 4) + renderInfo->precedingRows * IMAGE_WIDTH * 3;
+    float factor;
+    for (int i = 0; i < renderInfo->numRows * IMAGE_WIDTH; i++) {
+        unsigned int x = i % IMAGE_WIDTH;
+        unsigned int y = (i + renderInfo->precedingRows * IMAGE_WIDTH) / IMAGE_WIDTH;
+        unsigned char gradientR = (unsigned char)((float)x / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)y / ((float)(IMAGE_HEIGHT - 1) / 127.5));
+        unsigned char gradientG = (unsigned char)((float)(IMAGE_WIDTH - x - 1) / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
+        unsigned char gradientB = (unsigned char)((float)x / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
+        int mandel = inMandelbrotSet(x - (IMAGE_WIDTH - MANDEL_WIDTH) / 2, y - (IMAGE_HEIGHT - MANDEL_HEIGHT) / 2, MANDEL_WIDTH, MANDEL_HEIGHT);
+        
+        unsigned int baseIndex = i * 3 + (y - renderInfo->precedingRows) * ((4 + ((IMAGE_WIDTH * -3) % 4)) % 4);
+        if (mandel > 4) {
+            factor = (float)(MAX_MANDELBROT_ITERATIONS - (mandel - 5)) / MAX_MANDELBROT_ITERATIONS;
+            data[baseIndex] = factor * gradientB;
+            data[baseIndex + 1] = factor * gradientG;
+            data[baseIndex + 2] = factor * gradientR;
+        } else {
+            data[baseIndex] = gradientB;
+            data[baseIndex + 1] = gradientG;
+            data[baseIndex + 2] = gradientR;
+        }
+    }
+    free(args);
+}
+
 int main()
 {
     unsigned int dataSize = IMAGE_WIDTH * 3 * IMAGE_HEIGHT + ((4 + ((IMAGE_WIDTH * -3) % 4)) % 4) * IMAGE_HEIGHT;
@@ -59,36 +96,37 @@ int main()
         return -1;
     }
 
-    /* write first header to file */
     fwrite(&bmpHeader, 1, sizeof(struct BITMAPFILEHEADER), bmpOut);
-    /* write DIB header */
     fwrite(&bmpInfo, 1, sizeof(struct BITMAPINFOHEADER), bmpOut);
 
-    unsigned char currentPix[3];
-    unsigned char nullByte = 0;
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++)
-        {
-            unsigned char gradientR = (unsigned char)((float)x / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)y / ((float)(IMAGE_HEIGHT - 1) / 127.5));
-            unsigned char gradientG = (unsigned char)((float)(IMAGE_WIDTH - x - 1) / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
-            unsigned char gradientB = (unsigned char)((float)x / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
-            int mandel = inMandelbrotSet(x - (IMAGE_WIDTH - MANDEL_WIDTH) / 2, y - (IMAGE_HEIGHT - MANDEL_HEIGHT) / 2, MANDEL_WIDTH, MANDEL_HEIGHT);
-            if (mandel > 4) {
-                float factor = (float)(MAX_MANDELBROT_ITERATIONS - (mandel - 6)) / MAX_MANDELBROT_ITERATIONS;
-                currentPix[0] = factor * gradientB;
-                currentPix[1] = factor * gradientG;
-                currentPix[2] = factor * gradientR;
-            } else {
-                currentPix[0] = gradientB;
-                currentPix[1] = gradientG;
-                currentPix[2] = gradientR;
-            }
-            fwrite(currentPix, 1, 3, bmpOut);
-        }
-        for (int i = 0; i < (4 + ((IMAGE_WIDTH * -3) % 4)) % 4; i++) {
-            fwrite(&nullByte, 1, 1, bmpOut);
-        }
-    }
+    unsigned char* img = calloc(dataSize, 1);
+    unsigned int precedingRows = 0;
 
+    pthread_attr_t attr;
+    pthread_t threads[NUM_THREADS];
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+    for(int i = 0; i < NUM_THREADS; i++) {
+        struct render_info* renderInfo = malloc(sizeof(struct render_info));
+        renderInfo->bufStart = img;
+        renderInfo->numRows = IMAGE_HEIGHT / NUM_THREADS;
+        renderInfo->precedingRows = precedingRows;
+        
+        if(i + 1 == NUM_THREADS)
+            renderInfo->numRows = IMAGE_HEIGHT - (renderInfo->numRows * (NUM_THREADS - 1));
+        if(pthread_create(&threads[i], &attr, renderSection, renderInfo))
+            return -1;
+        precedingRows += renderInfo->numRows;
+    }
+    pthread_attr_destroy(&attr);
+
+    void* ret;
+    for(int i = 0; i < NUM_THREADS; i++) {
+        if(pthread_join(threads[i], &ret))
+            return -1;
+    }
+    fwrite(img, 1, dataSize, bmpOut);
+
+    free(img);
     fclose(bmpOut);
 }
