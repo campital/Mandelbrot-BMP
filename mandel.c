@@ -10,6 +10,8 @@
 #define MANDEL_WIDTH 1500
 #define MANDEL_HEIGHT 1000
 
+const int rowPadding = (4 - (IMAGE_WIDTH % 4)) % 4;
+
 struct render_info {
     unsigned char* bufStart;
     unsigned int numRows;
@@ -59,7 +61,7 @@ int inMandelbrotSet(int x, int y, int width, int height)
 void* renderSection(void* args)
 {
     struct render_info* renderInfo = (struct render_info*) args;
-    unsigned char* data = renderInfo->bufStart + renderInfo->precedingRows * ((4 + ((IMAGE_WIDTH * -3) % 4)) % 4) + renderInfo->precedingRows * IMAGE_WIDTH * 3;
+    unsigned char* data = renderInfo->bufStart + renderInfo->precedingRows * rowPadding + renderInfo->precedingRows * IMAGE_WIDTH * 3;
     float factor;
     for (int i = 0; i < renderInfo->numRows * IMAGE_WIDTH; i++) {
         unsigned int x = i % IMAGE_WIDTH;
@@ -69,7 +71,7 @@ void* renderSection(void* args)
         unsigned char gradientB = (unsigned char)((float)x / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
         int mandel = inMandelbrotSet(x - (IMAGE_WIDTH - MANDEL_WIDTH) / 2, y - (IMAGE_HEIGHT - MANDEL_HEIGHT) / 2, MANDEL_WIDTH, MANDEL_HEIGHT);
         
-        unsigned int baseIndex = i * 3 + (y - renderInfo->precedingRows) * ((4 + ((IMAGE_WIDTH * -3) % 4)) % 4);
+        unsigned int baseIndex = i * 3 + (y - renderInfo->precedingRows) * rowPadding;
         if (mandel > 4) {
             factor = (float)(MAX_MANDELBROT_ITERATIONS - (mandel - 5)) / MAX_MANDELBROT_ITERATIONS;
             data[baseIndex] = factor * gradientB;
@@ -87,7 +89,7 @@ void* renderSection(void* args)
 
 int main()
 {
-    unsigned int dataSize = IMAGE_WIDTH * 3 * IMAGE_HEIGHT + ((4 + ((IMAGE_WIDTH * -3) % 4)) % 4) * IMAGE_HEIGHT;
+    unsigned int dataSize = IMAGE_WIDTH * 3 * IMAGE_HEIGHT + rowPadding * IMAGE_HEIGHT;
     struct BITMAPFILEHEADER bmpHeader = {0x4D42, 54 + dataSize, 0, 0, 54}; /* data obtained from MSDN and Wikipedia */
     struct BITMAPINFOHEADER bmpInfo = { sizeof(struct BITMAPINFOHEADER), IMAGE_WIDTH, IMAGE_HEIGHT, 1, 24, 0, dataSize, 2835, 2835, 0, 0 };
 
