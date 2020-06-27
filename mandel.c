@@ -2,20 +2,44 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <getopt.h>
 
 #define MAX_MANDELBROT_ITERATIONS 80
-#define IMAGE_WIDTH 1920
-#define IMAGE_HEIGHT 1080
 #define NUM_THREADS 54
-#define MANDEL_WIDTH 1500
-#define MANDEL_HEIGHT 1000
 
-const int rowPadding = (4 - (IMAGE_WIDTH % 4)) % 4;
+int imageWidth = 1920;
+int imageHeight = 1080;
+int rowPadding;
+
+const struct option options[] = {
+        {"help", 0, NULL, 1},
+        {"xstart", 1, NULL, 2},
+        {"xend", 1, NULL, 3},
+        {"ystart", 1, NULL, 4},
+        {"yend", 1, NULL, 5},
+        {"width", 1, NULL, 6},
+        {"height", 1, NULL, 7},
+        {0, 0, 0, 0}
+};
+    
+const char helpMessage[] = "Usage: %s [args]\n\n\
+Possible arguments:\n\
+    --help\n\
+    --xstart [value]   Set the leftmost floating point value of the Mandelbrot set   (double)\n\
+    --xend [value]     Set the rightmost floating point value of the Mandelbrot set  (double)\n\
+    --ystart [value]   Set the lower floating point value of the Mandelbrot set      (double)\n\
+    --yend [value]     Set the upper floating point value of the Mandelbrot set      (double)\n\
+    --width [value]    Set the width of the output image                             (int)\n\
+    --height [value]   Set the height of the output image                            (int)\n";
 
 struct render_info {
     unsigned char* bufStart;
     unsigned int numRows;
     unsigned int precedingRows;
+    double xStart;
+    double xEnd;
+    double yStart;
+    double yEnd;
 };
 
 struct __attribute__((__packed__)) BITMAPFILEHEADER {
@@ -40,18 +64,16 @@ struct __attribute__((__packed__)) BITMAPINFOHEADER {
   uint32_t biClrImportant;
 };
 
-int inMandelbrotSet(int x, int y, int width, int height)
+int inMandelbrotSet(double x, double y)
 {
-    const double normalizedX = ((double)x / (double)width) * 3 - 2;
-    const double normalizedY = ((double)y / (double)height) * 2 - 1;
-    double real = normalizedX;
-    double imaginary = normalizedY;
+    double real = x;
+    double imaginary = y;
 
     for (int i = 0; i < MAX_MANDELBROT_ITERATIONS; i++) {
         double real2 = real * real;
         double imaginary2 = imaginary * imaginary;
-        imaginary = real * imaginary * 2 + normalizedY;
-        real = real2 - imaginary2 + normalizedX;
+        imaginary = real * imaginary * 2 + y;
+        real = real2 - imaginary2 + x;
         if (real2 + imaginary2 > 4)
             return i;
     }
@@ -61,15 +83,19 @@ int inMandelbrotSet(int x, int y, int width, int height)
 void* renderSection(void* args)
 {
     struct render_info* renderInfo = (struct render_info*) args;
-    unsigned char* data = renderInfo->bufStart + renderInfo->precedingRows * rowPadding + renderInfo->precedingRows * IMAGE_WIDTH * 3;
+    unsigned char* data = renderInfo->bufStart + renderInfo->precedingRows * rowPadding + renderInfo->precedingRows * imageWidth * 3;
     float factor;
-    for (int i = 0; i < renderInfo->numRows * IMAGE_WIDTH; i++) {
-        unsigned int x = i % IMAGE_WIDTH;
-        unsigned int y = (i + renderInfo->precedingRows * IMAGE_WIDTH) / IMAGE_WIDTH;
-        unsigned char gradientR = (unsigned char)((float)x / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)y / ((float)(IMAGE_HEIGHT - 1) / 127.5));
-        unsigned char gradientG = (unsigned char)((float)(IMAGE_WIDTH - x - 1) / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
-        unsigned char gradientB = (unsigned char)((float)x / ((float)(IMAGE_WIDTH - 1) / 127.5) + (float)(IMAGE_HEIGHT - y - 1) / ((float)(IMAGE_HEIGHT - 1) / 127.5));
-        int mandel = inMandelbrotSet(x - (IMAGE_WIDTH - MANDEL_WIDTH) / 2, y - (IMAGE_HEIGHT - MANDEL_HEIGHT) / 2, MANDEL_WIDTH, MANDEL_HEIGHT);
+    const double xRange = renderInfo->xEnd - renderInfo->xStart;
+    const double yRange = renderInfo->yEnd - renderInfo->yStart;
+    for (int i = 0; i < renderInfo->numRows * imageWidth; i++) {
+        unsigned int x = i % imageWidth;
+        unsigned int y = (i + renderInfo->precedingRows * imageWidth) / imageWidth;
+        unsigned char gradientR = (unsigned char)((float)x / ((float)(imageWidth - 1) / 127.5) + (float)y / ((float)(imageHeight - 1) / 127.5));
+        unsigned char gradientG = (unsigned char)((float)(imageWidth - x - 1) / ((float)(imageWidth - 1) / 127.5) + (float)(imageHeight - y - 1) / ((float)(imageHeight - 1) / 127.5));
+        unsigned char gradientB = (unsigned char)((float)x / ((float)(imageWidth - 1) / 127.5) + (float)(imageHeight - y - 1) / ((float)(imageHeight - 1) / 127.5));
+        
+        int mandel = inMandelbrotSet(((double)x / (double)imageWidth) * xRange + renderInfo->xStart,
+            ((double)y / (double)imageHeight) * yRange + renderInfo->yStart);
         
         unsigned int baseIndex = i * 3 + (y - renderInfo->precedingRows) * rowPadding;
         if (mandel > 4) {
@@ -87,11 +113,38 @@ void* renderSection(void* args)
     return NULL;
 }
 
-int main()
+void getArgs(int argc, char** argv, double* xStart, double* xEnd, double* yStart, double* yEnd)
 {
-    unsigned int dataSize = IMAGE_WIDTH * 3 * IMAGE_HEIGHT + rowPadding * IMAGE_HEIGHT;
+    *xStart = -2.5;
+    *xEnd = 1;
+    *yStart = -1 * ((double)imageHeight / (double)imageWidth) / ((double)2 / (double)3.5);
+    *yEnd = -1 * *yStart;
+    
+    int res;
+    
+    while((res = getopt_long_only(argc, argv, "", options, NULL)) != -1) {
+        switch(res) {
+            case '?':
+                printf("Run '%s --help' for more information\n", argv[0]);
+                break;
+            case 1:
+                printf(helpMessage, argv[0]);
+                break;
+        }
+    }
+    quitLoop:;
+}
+
+int main(int argc, char** argv)
+{
+    double xStart, xEnd, yStart, yEnd;
+    getArgs(argc, argv, &xStart, &xEnd, &yStart, &yEnd);
+    
+    rowPadding = (4 - (imageWidth % 4)) % 4;
+    
+    unsigned int dataSize = imageWidth * 3 * imageHeight + rowPadding * imageHeight;
     struct BITMAPFILEHEADER bmpHeader = {0x4D42, 54 + dataSize, 0, 0, 54}; /* data obtained from MSDN and Wikipedia */
-    struct BITMAPINFOHEADER bmpInfo = { sizeof(struct BITMAPINFOHEADER), IMAGE_WIDTH, IMAGE_HEIGHT, 1, 24, 0, dataSize, 2835, 2835, 0, 0 };
+    struct BITMAPINFOHEADER bmpInfo = { sizeof(struct BITMAPINFOHEADER), imageWidth, imageHeight, 1, 24, 0, dataSize, 2835, 2835, 0, 0 };
 
     FILE* bmpOut = fopen("mandelbrot.bmp", "wb");
     if(bmpOut == NULL) {
@@ -112,11 +165,15 @@ int main()
     for(int i = 0; i < NUM_THREADS; i++) {
         struct render_info* renderInfo = malloc(sizeof(struct render_info));
         renderInfo->bufStart = img;
-        renderInfo->numRows = IMAGE_HEIGHT / NUM_THREADS;
+        renderInfo->numRows = imageHeight / NUM_THREADS;
         renderInfo->precedingRows = precedingRows;
+        renderInfo->xStart = xStart;
+        renderInfo->xEnd = xEnd;
+        renderInfo->yStart = yStart;
+        renderInfo->yEnd = yEnd;
         
         if(i + 1 == NUM_THREADS)
-            renderInfo->numRows = IMAGE_HEIGHT - (renderInfo->numRows * (NUM_THREADS - 1));
+            renderInfo->numRows = imageHeight - (renderInfo->numRows * (NUM_THREADS - 1));
         if(pthread_create(&threads[i], &attr, renderSection, renderInfo))
             return -1;
         precedingRows += renderInfo->numRows;
