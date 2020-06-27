@@ -117,7 +117,7 @@ void getArgs(int argc, char** argv, double* xStart, double* xEnd, double* yStart
 {
     *xStart = -2.5;
     *xEnd = 1;
-    *yStart = -1 * ((double)imageHeight / (double)imageWidth) / ((double)2 / (double)3.5);
+    *yStart = -0.5 * ((*xEnd - *xStart) * ((double)imageHeight / (double)imageWidth));
     *yEnd = -1 * *yStart;
     
     int res;
