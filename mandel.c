@@ -3,10 +3,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <getopt.h>
+#include <string.h>
 #include <math.h>
 
 #define MAX_MANDELBROT_ITERATIONS 80
 #define NUM_THREADS 54
+#define DEFAULT_OUTPUT "mandelbrot.bmp"
 
 int imageWidth = 1920;
 int imageHeight = 1080;
@@ -20,7 +22,8 @@ const struct option options[] = {
         {"yupper", 1, NULL, 5},
         {"width", 1, NULL, 6},
         {"height", 1, NULL, 7},
-        {}
+        {"output", 1, NULL, 8},
+        {0, 0, 0, 0}
 };
     
 const char helpMessage[] = "Usage: %s [args]\n\
@@ -32,7 +35,8 @@ Possible arguments:\n\
     --ylower [value]   Set the lowest y value to render      (double)\n\
     --yupper [value]   Set the highest y value to render     (double)\n\
     --width [value]    Set the width of the output image     (int)\n\
-    --height [value]   Set the height of the output image    (int)\n\n\
+    --height [value]   Set the height of the output image    (int)\n\
+    --output [value]   Set the location of the output image  (string)\n\n\
 If only 3 boundary values are specified, the other can be inferred from the image aspect ratio.\n";
 
 struct render_info {
@@ -128,15 +132,18 @@ void setDefaultCorners(double corners[])
 /*
 * corners should be left x, right x, lower y, upper y
 * returns 1 if the program should proceed
+* REMEMBER TO FREE *fileName!
 */
-int getArgs(int argc, char** argv, double corners[4])
+int getArgs(int argc, char** argv, double corners[4], char** fileName)
 {
     for(int i = 0; i < 4; i++)
         corners[i] = NAN;
+    *fileName = NULL;
     
     int res;
     int tmpImageHeight;
     int tmpImageWidth;
+    int strLen;
     while((res = getopt_long_only(argc, argv, "", options, NULL)) != -1) {
         switch(res) {
             case '?':
@@ -172,9 +179,15 @@ int getArgs(int argc, char** argv, double corners[4])
                 else
                     printf("Warning: Image height is not between 0 and 20000 pixels! Falling back to default.\n");
                 break;
+            case 8:
+                if(*fileName != NULL)
+                    free(*fileName);
+                strLen = strlen(optarg) + 1;
+                *fileName = malloc(strLen);
+                memcpy(*fileName, optarg, strLen);
+                break;
         }
     }
-    quitLoop:;
     
     if(!isnan(corners[0]) && !isnan(corners[1]) && (isnan(corners[2]) != isnan(corners[3]))) {
          double otherRange = (corners[1] - corners[0]) * ((double)imageHeight / (double)imageWidth);
@@ -192,13 +205,20 @@ int getArgs(int argc, char** argv, double corners[4])
         setDefaultCorners(corners);
     }
     
+    if(*fileName == NULL) {
+        *fileName = malloc(sizeof(DEFAULT_OUTPUT));
+        memcpy(*fileName, DEFAULT_OUTPUT, sizeof(DEFAULT_OUTPUT));
+    }
+        
+    
     return 1;
 }
 
 int main(int argc, char** argv)
 {
+    char* fileName;
     double corners[4];
-    if(!getArgs(argc, argv, corners))
+    if(!getArgs(argc, argv, corners, &fileName))
         return 0;
     rowPadding = (4 - (imageWidth % 4)) % 4;
     
@@ -206,7 +226,7 @@ int main(int argc, char** argv)
     struct BITMAPFILEHEADER bmpHeader = {0x4D42, 54 + dataSize, 0, 0, 54}; /* data obtained from MSDN and Wikipedia */
     struct BITMAPINFOHEADER bmpInfo = { sizeof(struct BITMAPINFOHEADER), imageWidth, imageHeight, 1, 24, 0, dataSize, 2835, 2835, 0, 0 };
 
-    FILE* bmpOut = fopen("mandelbrot.bmp", "wb");
+    FILE* bmpOut = fopen(fileName, "wb");
     if(bmpOut == NULL) {
         perror("Error opening file");
         return -1;
@@ -248,5 +268,6 @@ int main(int argc, char** argv)
     fwrite(img, 1, dataSize, bmpOut);
 
     free(img);
+    free(fileName);
     fclose(bmpOut);
 }
