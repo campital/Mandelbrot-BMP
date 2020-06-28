@@ -209,7 +209,6 @@ int getArgs(int argc, char** argv, double corners[4], char** fileName)
         *fileName = malloc(sizeof(DEFAULT_OUTPUT));
         memcpy(*fileName, DEFAULT_OUTPUT, sizeof(DEFAULT_OUTPUT));
     }
-        
     
     return 1;
 }
