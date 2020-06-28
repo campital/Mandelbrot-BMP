@@ -182,9 +182,7 @@ int getArgs(int argc, char** argv, double corners[4], char** fileName)
             case 8:
                 if(*fileName != NULL)
                     free(*fileName);
-                strLen = strlen(optarg) + 1;
-                *fileName = malloc(strLen);
-                memcpy(*fileName, optarg, strLen);
+                *fileName = strdup(optarg);
                 break;
         }
     }
@@ -205,10 +203,8 @@ int getArgs(int argc, char** argv, double corners[4], char** fileName)
         setDefaultCorners(corners);
     }
     
-    if(*fileName == NULL) {
-        *fileName = malloc(sizeof(DEFAULT_OUTPUT));
-        memcpy(*fileName, DEFAULT_OUTPUT, sizeof(DEFAULT_OUTPUT));
-    }
+    if(*fileName == NULL)
+        *fileName = strdup(DEFAULT_OUTPUT);
     
     return 1;
 }
