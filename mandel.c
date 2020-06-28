@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <getopt.h>
+#include <math.h>
 
 #define MAX_MANDELBROT_ITERATIONS 80
 #define NUM_THREADS 54
@@ -13,24 +14,26 @@ int rowPadding;
 
 const struct option options[] = {
         {"help", 0, NULL, 1},
-        {"xstart", 1, NULL, 2},
-        {"xend", 1, NULL, 3},
-        {"ystart", 1, NULL, 4},
-        {"yend", 1, NULL, 5},
+        {"xleft", 1, NULL, 2},
+        {"xright", 1, NULL, 3},
+        {"ylower", 1, NULL, 4},
+        {"yupper", 1, NULL, 5},
         {"width", 1, NULL, 6},
         {"height", 1, NULL, 7},
-        {0, 0, 0, 0}
+        {}
 };
     
-const char helpMessage[] = "Usage: %s [args]\n\n\
+const char helpMessage[] = "Usage: %s [args]\n\
+Mandelbrot-BMP generates a BMP image of a specified location in the Mandelbrot set.\n\n\
 Possible arguments:\n\
     --help\n\
-    --xstart [value]   Set the leftmost floating point value of the Mandelbrot set   (double)\n\
-    --xend [value]     Set the rightmost floating point value of the Mandelbrot set  (double)\n\
-    --ystart [value]   Set the lower floating point value of the Mandelbrot set      (double)\n\
-    --yend [value]     Set the upper floating point value of the Mandelbrot set      (double)\n\
-    --width [value]    Set the width of the output image                             (int)\n\
-    --height [value]   Set the height of the output image                            (int)\n";
+    --xleft [value]    Set the leftmost x value to render    (double)\n\
+    --xright [value]   Set the rightmost x value to render   (double)\n\
+    --ylower [value]   Set the lowest y value to render      (double)\n\
+    --yupper [value]   Set the highest y value to render     (double)\n\
+    --width [value]    Set the width of the output image     (int)\n\
+    --height [value]   Set the height of the output image    (int)\n\n\
+If only 3 boundary values are specified, the other can be inferred from the image aspect ratio.\n";
 
 struct render_info {
     unsigned char* bufStart;
@@ -113,15 +116,27 @@ void* renderSection(void* args)
     return NULL;
 }
 
-void getArgs(int argc, char** argv, double* xStart, double* xEnd, double* yStart, double* yEnd)
+void setDefaultCorners(double corners[])
 {
-    *xStart = -2.5;
-    *xEnd = 1;
-    *yStart = -0.5 * ((*xEnd - *xStart) * ((double)imageHeight / (double)imageWidth));
-    *yEnd = -1 * *yStart;
+    printf("Warning: Falling back to default Mandelbrot corners.\n");
+    corners[0] = -2.4;
+    corners[1] = 1.4;
+    corners[2] = -0.5 * (corners[1] - corners[0]) * ((double)imageHeight / (double)imageWidth);
+    corners[3] = -1 * corners[2];
+}
+
+/*
+* corners should be left x, right x, lower y, upper y
+* returns 1 if the program should proceed
+*/
+int getArgs(int argc, char** argv, double corners[4])
+{
+    for(int i = 0; i < 4; i++)
+        corners[i] = NAN;
     
     int res;
-    
+    int tmpImageHeight;
+    int tmpImageWidth;
     while((res = getopt_long_only(argc, argv, "", options, NULL)) != -1) {
         switch(res) {
             case '?':
@@ -129,17 +144,62 @@ void getArgs(int argc, char** argv, double* xStart, double* xEnd, double* yStart
                 break;
             case 1:
                 printf(helpMessage, argv[0]);
+                return 0;
+                break;
+            case 2:
+                corners[0] = strtod(optarg, NULL);
+                break;
+            case 3:
+                corners[1] = strtod(optarg, NULL);
+                break;
+            case 4:
+                corners[2] = strtod(optarg, NULL);
+                break;
+            case 5:
+                corners[3] = strtod(optarg, NULL);
+                break;
+            case 6:
+                tmpImageWidth = atoi(optarg);
+                if(tmpImageWidth > 0 && tmpImageWidth < 20000)
+                    imageWidth = tmpImageWidth;
+                else
+                    printf("Warning: Image width is not between 0 and 20000 pixels! Falling back to default.\n");
+                break;
+            case 7:
+                tmpImageHeight = atoi(optarg);
+                if(tmpImageHeight > 0 && tmpImageHeight < 20000)
+                    imageHeight = tmpImageHeight;
+                else
+                    printf("Warning: Image height is not between 0 and 20000 pixels! Falling back to default.\n");
                 break;
         }
     }
     quitLoop:;
+    
+    if(!isnan(corners[0]) && !isnan(corners[1]) && (isnan(corners[2]) != isnan(corners[3]))) {
+         double otherRange = (corners[1] - corners[0]) * ((double)imageHeight / (double)imageWidth);
+         if(!isnan(corners[2]))
+            corners[3] = corners[2] + otherRange;
+         else if(!isnan(corners[3]))
+            corners[2] = corners[3] - otherRange;
+    } else if(!isnan(corners[2]) && !isnan(corners[3]) && (isnan(corners[0]) != isnan(corners[1]))) {
+        double otherRange = (corners[3] - corners[2]) * ((double)imageWidth / (double)imageHeight);
+         if(!isnan(corners[0]))
+            corners[1] = corners[0] + otherRange;
+         else if(!isnan(corners[1]))
+            corners[0] = corners[1] - otherRange;
+    } else if(!(!isnan(corners[0]) && !isnan(corners[1]) && !isnan(corners[2]) && !isnan(corners[3]))) {
+        setDefaultCorners(corners);
+    }
+    
+    return 1;
 }
 
 int main(int argc, char** argv)
 {
-    double xStart, xEnd, yStart, yEnd;
-    getArgs(argc, argv, &xStart, &xEnd, &yStart, &yEnd);
-    
+    double corners[4];
+    if(!getArgs(argc, argv, corners))
+        return 0;
     rowPadding = (4 - (imageWidth % 4)) % 4;
     
     unsigned int dataSize = imageWidth * 3 * imageHeight + rowPadding * imageHeight;
@@ -167,10 +227,10 @@ int main(int argc, char** argv)
         renderInfo->bufStart = img;
         renderInfo->numRows = imageHeight / NUM_THREADS;
         renderInfo->precedingRows = precedingRows;
-        renderInfo->xStart = xStart;
-        renderInfo->xEnd = xEnd;
-        renderInfo->yStart = yStart;
-        renderInfo->yEnd = yEnd;
+        renderInfo->xStart = corners[0];
+        renderInfo->xEnd = corners[1];
+        renderInfo->yStart = corners[2];
+        renderInfo->yEnd = corners[3];
         
         if(i + 1 == NUM_THREADS)
             renderInfo->numRows = imageHeight - (renderInfo->numRows * (NUM_THREADS - 1));
