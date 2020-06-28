@@ -4,5 +4,5 @@
 
 ### Usage
 1. Download or clone the repository
-2. Compile: `gcc -O3 mandel.c -o mandel`
+2. Compile: `gcc -O3 mandel.c -o mandel -pthread`
 3. Run `./mandel` to generate the default image or run `./mandel --help` for more options
