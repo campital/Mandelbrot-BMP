@@ -4,5 +4,5 @@
 
 ### Usage
 1. Download or clone the repository
-2. Compile: `gcc -O3 mandel.c -o mandel -pthread`
+2. Compile: `gcc -O3 mandel.c -o mandel -pthread` for the pthread version or `nvcc -O3 mandel.cu -o mandel` for the CUDA version
 3. Run `./mandel` to generate the default image or run `./mandel --help` for more options
